@@ -1,0 +1,99 @@
+// lib/pdf-ai-agent-stack.ts
+import * as cdk from 'aws-cdk-lib';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as apigw from 'aws-cdk-lib/aws-apigateway';
+import * as events from 'aws-cdk-lib/aws-s3-notifications'; // Import cho S3 notifications
+import { Construct } from 'constructs';
+
+export class PdfAiAgentStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+
+    // 1. S3 Bucket để lưu trữ PDF
+    const pdfBucket = new s3.Bucket(this, 'PdfStorageBucket', {
+      versioned: true, // Tùy chọn, để có thể khôi phục phiên bản cũ của file
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // Xóa bucket khi stack bị xóa (chỉ dùng cho dev/test)
+      autoDeleteObjects: true, // Xóa các object trong bucket khi bucket bị xóa (chỉ dùng cho dev/test)
+    });
+
+    // Output tên bucket để dễ tham chiếu
+    new cdk.CfnOutput(this, 'PdfBucketName', {
+      value: pdfBucket.bucketName,
+      description: 'Tên S3 Bucket để lưu trữ PDF',
+    });
+
+    // 2. Lambda Function cho Upload Handler
+    const uploadHandler = new lambda.Function(this, 'UploadHandler', {
+      runtime: lambda.Runtime.NODEJS_18_X, // Hoặc phiên bản mới hơn
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/upload-handler'),
+      environment: {
+        BUCKET_NAME: pdfBucket.bucketName,
+      },
+      memorySize: 256, // RAM tối thiểu cho upload, có thể tăng nếu file quá lớn
+      timeout: cdk.Duration.seconds(30),
+    });
+
+    // Cấp quyền cho Lambda ghi vào S3 bucket
+    pdfBucket.grantWrite(uploadHandler); // Chỉ cần quyền write vào bucket
+
+    // 3. Lambda Function cho PDF Processor
+    const pdfProcessor = new lambda.Function(this, 'PdfProcessor', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/pdf-processor'),
+      timeout: cdk.Duration.minutes(10), // Tăng timeout cho PDF processing (có thể mất thời gian)
+      memorySize: 1024, // Cần nhiều RAM hơn cho xử lý PDF và embeddings
+      environment: {
+        AWS_REGION: this.region, // Lấy region từ Stack
+        BUCKET_NAME: pdfBucket.bucketName,
+        PINECONE_API_KEY: process.env.PINECONE_API_KEY || 'YOUR_PINECONE_API_KEY', // <<< THAY THẾ HOẶC DÙNG BIẾN MÔI TRƯỜNG
+        PINECONE_ENVIRONMENT: process.env.PINECONE_ENVIRONMENT || 'YOUR_PINECONE_ENVIRONMENT', // <<< THAY THẾ HOẶC DÙNG BIẾN MÔI TRƯỜNG
+        PINECONE_INDEX_NAME: process.env.PINECONE_INDEX_NAME || 'YOUR_PINECONE_INDEX_NAME', // <<< THAY THẾ HOẶC DÙNG BIẾN MÔI TRƯỜNG
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'YOUR_OPENAI_API_KEY', // <<< THAY THẾ HOẶC DÙNG BIẾN MÔI TRƯỜNG
+      },
+      // Thêm Dead-Letter Queue (DLQ) để xử lý lỗi bất đồng bộ
+      // Nếu có lỗi trong PDF Processor, event sẽ được gửi đến SQS để retry hoặc xử lý thủ công
+      // deadLetterQueueEnabled: true, // Cdk sẽ tự tạo SQS queue
+    });
+
+    // Cấp quyền cho Lambda đọc và xóa object từ S3
+    pdfBucket.grantRead(pdfProcessor);
+    pdfBucket.grantDelete(pdfProcessor); // Nếu bạn muốn xóa file gốc sau khi xử lý
+
+    // Trigger Lambda khi có file mới được tạo trong S3 bucket
+    // Chỉ trigger khi file được upload vào thư mục 'uploads/' và có đuôi .pdf
+    pdfBucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED,
+      new events.LambdaDestination(pdfProcessor),
+      {
+        prefix: 'uploads/', // Chỉ theo dõi trong thư mục uploads/
+        suffix: '.pdf',     // Chỉ theo dõi file có đuôi .pdf
+      }
+    );
+
+    // 4. API Gateway để gọi Lambda Upload và Query (chưa có query ở bước này, nhưng đặt sẵn)
+    const api = new apigw.RestApi(this, 'PdfApi', {
+      restApiName: 'PDF AI Agent API',
+      description: 'API để upload PDF và query agent',
+      deployOptions: {
+        stageName: 'dev',
+      },
+      defaultCorsPreflightOptions: { // Thêm CORS cho phép truy cập từ frontend
+        allowOrigins: apigw.Cors.ALL_ORIGINS,
+        allowMethods: apigw.Cors.ALL_METHODS,
+        allowHeaders: apigw.Cors.DEFAULT_HEADERS,
+      },
+    });
+
+    const uploadResource = api.root.addResource('upload');
+    uploadResource.addMethod('POST', new apigw.LambdaIntegration(uploadHandler));
+
+    new cdk.CfnOutput(this, 'UploadApiUrl', {
+      value: `${api.url}upload`,
+      description: 'URL của API để upload file PDF',
+    });
+    // Output cho Query API sẽ được thêm vào ở bước 5
+  }
+}

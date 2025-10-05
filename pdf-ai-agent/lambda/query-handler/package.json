@@ -1,0 +1,11 @@
+{
+  "name": "query-handler",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@pinecone-database/pinecone": "^6.1.2",
+    "openai": "^4.57.0"
+  }
+}
+
