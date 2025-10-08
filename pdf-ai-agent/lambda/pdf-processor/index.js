@@ -1,4 +1,5 @@
 // lambda/pdf-processor/index.js
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 const { S3Client, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const pdf = require('pdf-parse');
 const OpenAI = require('openai');

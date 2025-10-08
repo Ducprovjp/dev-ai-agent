@@ -1,8 +1,18 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
 import { PdfAiAgentStack } from "../lib/pdf-ai-agent-stack";
+import * as dotenv from "dotenv";
+import * as path from "path";
+
+// Load environment variables from repo-level .env for synth/deploy
+dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const app = new cdk.App();
+
+// Allow overriding account/region via env/ .env for portability
+const account = process.env.CDK_ACCOUNT || "787068571047";
+const region = process.env.CDK_REGION || "ap-southeast-1";
+
 new PdfAiAgentStack(app, "PdfAiAgentStack", {
   /* If you don't specify 'env', this stack will be environment-agnostic.
    * Account/Region-dependent features and context lookups will not work,
@@ -17,5 +27,5 @@ new PdfAiAgentStack(app, "PdfAiAgentStack", {
   // env: { account: '123456789012', region: 'us-east-1' },
 
   /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
-  env: { account: "787068571047", region: "ap-southeast-1" },
+  env: { account, region },
 });

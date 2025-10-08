@@ -1,4 +1,5 @@
 // lambda/query-handler/index.js
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 const { Pinecone } = require('@pinecone-database/pinecone');
 const OpenAI = require('openai');
 
@@ -103,4 +104,3 @@ function response(statusCode, payload) {
     body: JSON.stringify(payload),
   };
 }
-

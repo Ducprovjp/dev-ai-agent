@@ -1,4 +1,5 @@
 // lambda/upload-handler/index.js
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { v4: uuidv4 } = require('uuid');
@@ -72,4 +73,3 @@ function response(statusCode, payload) {
     body: JSON.stringify(payload),
   };
 }
-
